@@ -246,6 +246,7 @@
       <div style="display:flex;gap:8px;margin-top:16px;">
         <button class="btn btn-primary" id="save-btn" onclick="handleSaveEdit()">💾 Zapisz w Google Sheets</button>
         <button class="btn" onclick="showTab('list')">Anuluj</button>
+        <button class="btn btn-danger" style="margin-left:auto;" onclick="handleDelete()">🗑 Usuń zlecenie</button>
       </div>
     </div>
   </div>
@@ -613,7 +614,7 @@ function rowToArr(o) {
     o.status||"W realizacji",o.koszt||0,o.waluta||"PLN",parseFloat(kPLN||0).toFixed(2),o.uwagi||""];
 }
 
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwWECOxwEkPSuCmuUo4tZkF6sQzZiuZT6m9Sfxr3vThe0EkApvWJ05wi5MXWEpXByE2/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw1wldTg8NbS6Z6ATQcSfIxPDxXm8BDEOCwZ4mbtBa2aOUo8wNDOgUGWpBTZWIlijVl/exec";
 
 async function handleAdd() {
   if (!parsedData) return;
@@ -664,6 +665,25 @@ async function handleSaveEdit() {
     else { showToast("Blad zapisu","error"); }
   } catch(e) { showToast("Blad: "+e.message,"error"); }
   btn.innerHTML = "Zapisz w Google Sheets"; btn.disabled = false;
+  setSyncing(false);
+}
+
+async function handleDelete() {
+  if (!editOrder) return;
+  if (!confirm(`Czy na pewno chcesz usunąć zlecenie ${editOrder.nr}? Tej operacji nie można cofnąć.`)) return;
+  const btn = document.getElementById("save-btn");
+  setSyncing(true);
+  try {
+    const res = await fetch(SCRIPT_URL, {
+      method:"POST", headers:{"Content-Type":"text/plain"},
+      body: JSON.stringify({action:"delete", rowIndex:editRowIndex})
+    });
+    const data = await res.json();
+    if (data.status==="ok") {
+      showToast("Zlecenie usunięte!","success");
+      showTab("list");
+    } else { showToast("Błąd usuwania","error"); }
+  } catch(e) { showToast("Błąd: "+e.message,"error"); }
   setSyncing(false);
 }
 
