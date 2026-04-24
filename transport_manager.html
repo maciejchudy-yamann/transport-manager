@@ -419,6 +419,26 @@ function renderStats() {
   ).join("");
 }
 
+async function quickStatusChange(id, newStatus) {
+  const idx = orders.findIndex(o => o.id === id);
+  if (idx === -1) return;
+  orders[idx].status = newStatus;
+  const updated = {...orders[idx]};
+  setSyncing(true);
+  try {
+    const res = await fetch(SCRIPT_URL, {
+      method:"POST", headers:{"Content-Type":"text/plain"},
+      body: JSON.stringify({action:"update", rowIndex:idx, row:rowToArr(updated)})
+    });
+    const data = await res.json();
+    if (data.status==="ok") {
+      showToast("Status zaktualizowany!","success");
+      renderStats(); renderTable();
+    } else { showToast("Błąd zapisu","error"); }
+  } catch(e) { showToast("Błąd: "+e.message,"error"); }
+  setSyncing(false);
+}
+
 function renderTable() {
   const search = (document.getElementById("search-input")||{value:""}).value.toLowerCase();
   const fs = (document.getElementById("filter-status")||{value:""}).value;
@@ -443,7 +463,13 @@ function renderTable() {
       <td style="font-size:12px;">${o.przewoznik||"—"}</td>
       <td class="mono" style="font-size:11px;color:var(--text3);">${o.dataOdbioru||"—"}</td>
       <td class="mono" style="font-size:11px;color:var(--text3);">${o.dataDostawa||"—"}</td>
-      <td><span class="status-badge" style="background:${sc.bg};color:${sc.text};"><span class="dot" style="background:${sc.dot};"></span>${o.status}</span></td>
+      <td>
+        <select onchange="quickStatusChange(${o.id}, this.value)" 
+          style="padding:3px 8px;border-radius:20px;border:none;font-size:11px;font-weight:700;cursor:pointer;outline:none;
+          background:${sc.bg};color:${sc.text};font-family:inherit;">
+          ${["W realizacji","Dostarczone","Opóźnione","Anulowane","Oczekuje"].map(s=>`<option value="${s}" ${s===o.status?"selected":""}>${s}</option>`).join("")}
+        </select>
+      </td>
       <td class="mono" style="font-size:12px;font-weight:600;white-space:nowrap;">${o.koszt?o.koszt.toLocaleString("pl-PL")+" "+o.waluta:"—"}</td>
       <td><button class="btn btn-sm" onclick="openEdit(${o.id})">Edytuj</button></td>
     </tr>`;
