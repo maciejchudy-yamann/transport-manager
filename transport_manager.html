@@ -590,32 +590,30 @@ function rowToArr(o) {
     o.status||"W realizacji",o.koszt||0,o.waluta||"PLN",parseFloat(kPLN||0).toFixed(2),o.uwagi||""];
 }
 
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwWECOxwEkPSuCmuUo4tZkF6sQzZiuZT6m9Sfxr3vThe0EkApvWJ05wi5MXWEpXByE2/exec";
+
 async function handleAdd() {
   if (!parsedData) return;
-  const k = getKey(); if (!k) { showTab("setup"); return; }
   const btn = document.getElementById("add-btn");
   btn.innerHTML = '<span class="spinner"></span>Zapisuję...'; btn.disabled = true;
   setSyncing(true);
   try {
-    const res = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${SHEET_NAME}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS&key=${k}`,
-      { method:"POST", headers:{"Content-Type":"application/json",},
-        body: JSON.stringify({values:[rowToArr(parsedData)]}) }
-    );
-    if (res.ok) {
-      showToast("✅ Zlecenie dodane do Google Sheets!","success");
+    const res = await fetch(SCRIPT_URL, {
+      method:"POST", headers:{"Content-Type":"text/plain"},
+      body: JSON.stringify({action:"append", row:rowToArr(parsedData)})
+    });
+    const data = await res.json();
+    if (data.status==="ok") {
+      showToast("Zlecenie dodane!","success");
       document.getElementById("ai-input").value = "";
       parsedData = null;
       document.getElementById("empty-form").style.display = "flex";
       document.getElementById("form-fields").style.display = "none";
-      document.getElementById("form-title").textContent = "📝 Dane zlecenia";
+      document.getElementById("form-title").textContent = "Dane zlecenia";
       showTab("list");
-    } else {
-      const e = await res.json();
-      showToast(e.error?.message||"Błąd — sprawdź klucz API","error");
-    }
-  } catch(e) { showToast("Błąd połączenia","error"); }
-  btn.innerHTML = "✅ Dodaj do Google Sheets"; btn.disabled = false;
+    } else { showToast("Blad zapisu","error"); }
+  } catch(e) { showToast("Blad: "+e.message,"error"); }
+  btn.innerHTML = "Dodaj do Google Sheets"; btn.disabled = false;
   setSyncing(false);
 }
 
@@ -630,26 +628,19 @@ function openEdit(id) {
 
 async function handleSaveEdit() {
   if (!editOrder) return;
-  const k = getKey(); if (!k) { showTab("setup"); return; }
   const btn = document.getElementById("save-btn");
-  btn.innerHTML = '<span class="spinner"></span>Zapisuję...'; btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Zapisuje...'; btn.disabled = true;
   setSyncing(true);
   try {
-    const rowNum = editRowIndex + 2;
-    const res = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${SHEET_NAME}!A${rowNum}:P${rowNum}?valueInputOption=USER_ENTERED&key=${k}`,
-      { method:"PUT", headers:{"Content-Type":"application/json",},
-        body: JSON.stringify({values:[rowToArr(editOrder)]}) }
-    );
-    if (res.ok) {
-      showToast("✅ Zapisano!","success");
-      showTab("list");
-    } else {
-      const e = await res.json();
-      showToast(e.error?.message||"Błąd zapisu","error");
-    }
-  } catch(e) { showToast("Błąd połączenia","error"); }
-  btn.innerHTML = "💾 Zapisz w Google Sheets"; btn.disabled = false;
+    const res = await fetch(SCRIPT_URL, {
+      method:"POST", headers:{"Content-Type":"text/plain"},
+      body: JSON.stringify({action:"update", rowIndex:editRowIndex, row:rowToArr(editOrder)})
+    });
+    const data = await res.json();
+    if (data.status==="ok") { showToast("Zapisano!","success"); showTab("list"); }
+    else { showToast("Blad zapisu","error"); }
+  } catch(e) { showToast("Blad: "+e.message,"error"); }
+  btn.innerHTML = "Zapisz w Google Sheets"; btn.disabled = false;
   setSyncing(false);
 }
 
