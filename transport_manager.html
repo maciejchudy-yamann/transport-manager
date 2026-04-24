@@ -549,10 +549,13 @@ function smartParse(input) {
     if (input.includes(p)) { if (!result.miejsce) result.miejsce = p; break; }
   }
 
-  // Generate order number
+  // Generate order number ZT_RRRRMMNN
   const d = new Date();
-  const nn = String(orders.length + 1).padStart(2,"0");
-  result.nr = `ZT_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}${nn}`;
+  const ym = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}`;
+  // Count existing orders with same year+month prefix
+  const sameMonth = orders.filter(o => o.nr && o.nr.startsWith("ZT_"+ym)).length;
+  const nn = String(sameMonth + 1).padStart(2,"0");
+  result.nr = `ZT_${ym}${nn}`;
 
   // Client: first UPPERCASE word(s) that aren't keywords
   const skip = new Set(["FOB","EXW","FCA","DAP","ETD","ETA","BUS","KOLEJ","MORZE","PLN","EUR","USD","CBM","FCL","LCL","PALET","KARTON",...carriers.map(c=>c.toUpperCase())]);
