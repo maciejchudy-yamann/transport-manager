@@ -429,7 +429,7 @@ async function quickStatusChange(id, newStatus) {
   try {
     const res = await fetch(SCRIPT_URL, {
       method:"POST", headers:{"Content-Type":"text/plain"},
-      body: JSON.stringify({action:"update", rowIndex:idx, row:rowToArr(updated)})
+      body: JSON.stringify({action:"update", nr:updated.nr, row:rowToArr(updated)})
     });
     const data = await res.json();
     if (data.status==="ok") {
@@ -658,7 +658,7 @@ async function handleSaveEdit() {
   try {
     const res = await fetch(SCRIPT_URL, {
       method:"POST", headers:{"Content-Type":"text/plain"},
-      body: JSON.stringify({action:"update", rowIndex:editRowIndex, row:rowToArr(editOrder)})
+      body: JSON.stringify({action:"update", nr:editOrder.nr, row:rowToArr(editOrder)})
     });
     const data = await res.json();
     if (data.status==="ok") { showToast("Zapisano!","success"); showTab("list"); }
@@ -676,7 +676,7 @@ async function handleDelete() {
   try {
     const res = await fetch(SCRIPT_URL, {
       method:"POST", headers:{"Content-Type":"text/plain"},
-      body: JSON.stringify({action:"delete", rowIndex:editRowIndex})
+      body: JSON.stringify({action:"delete", nr:editOrder.nr})
     });
     const data = await res.json();
     if (data.status==="ok") {
