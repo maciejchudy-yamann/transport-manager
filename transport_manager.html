@@ -328,9 +328,14 @@ function getCustomCarriers() {
 }
 function getCarriers() {
   const all = [...DEFAULT_CARRIERS];
-  getCustomCarriers().forEach(c => {
-    if (!all.some(x => x.toLowerCase() === String(c).toLowerCase())) all.push(c);
-  });
+  const push = c => {
+    c = String(c || "").trim();
+    if (c && !all.some(x => x.toLowerCase() === c.toLowerCase())) all.push(c);
+  };
+  // 1) przewoźnicy dodani ręcznie
+  getCustomCarriers().forEach(push);
+  // 2) przewoźnicy już obecni w arkuszu — żeby edycja nigdy nie wyczyściła pola
+  if (Array.isArray(orders)) orders.forEach(o => push(o.przewoznik));
   return all;
 }
 function addCarrier(name) {
