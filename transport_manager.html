@@ -152,6 +152,12 @@
 
 <main>
 
+  <div id="local-warning" style="display:none;background:#FEF9C3;border:1px solid #FDE047;border-radius:10px;padding:12px 16px;font-size:13px;color:#854D0E;line-height:1.6;margin-bottom:16px;">
+    <strong>⚠ Plik otwarty lokalnie z dysku.</strong> W tym trybie przeglądarka blokuje połączenie z Google Sheets, więc lista zleceń będzie pusta.
+    Wgraj plik na GitHub i otwórz przez adres <span class="mono">maciejchudy-yamann.github.io</span> — wtedy wszystko zadziała.
+  </div>
+  <div id="js-error-banner" style="display:none;background:#FEE2E2;border:1px solid #FECACA;border-radius:10px;padding:12px 16px;font-size:13px;color:#991B1B;line-height:1.6;margin-bottom:16px;"></div>
+
   <!-- SETUP -->
   <div id="tab-setup" class="view">
     <div class="setup-wrap">
@@ -170,6 +176,21 @@
         <div style="display:flex;gap:8px;">
           <button class="btn btn-primary" onclick="saveKey()" style="flex:1;">Zapisz i kontynuuj</button>
           <button class="btn" onclick="showTab('list')">Anuluj</button>
+        </div>
+
+        <hr style="border:none;border-top:1px solid var(--border);margin:22px 0 16px;">
+        <div style="font-size:22px;margin-bottom:10px;">🚚</div>
+        <h2 style="font-size:16px;font-weight:700;margin-bottom:6px;">Przewoźnicy</h2>
+        <p style="font-size:12px;color:var(--text2);margin-bottom:12px;line-height:1.6;">
+          Twoi dodatkowi przewoźnicy. Zapisani w tej przeglądarce.
+        </p>
+        <div id="carrier-manage-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;"></div>
+        <div class="field-group" style="margin-bottom:10px;">
+          <label class="field-label">Nowy przewoźnik</label>
+          <div style="display:flex;gap:8px;">
+            <input id="new-carrier-input" class="field-input" placeholder="np. Kuehne + Nagel" onkeydown="if(event.key==='Enter')addCarrierFromSetup()" style="flex:1;" />
+            <button class="btn btn-primary" onclick="addCarrierFromSetup()">Dodaj</button>
+          </div>
         </div>
       </div>
     </div>
@@ -259,7 +280,7 @@
 const SHEET_ID = "1QOKiayXPAtX3DtKYC9y-3lRchNvhKdS-cxymnXIh-Mg";
 const SHEET_NAME = "Zlecenia";
 const HEADERS = ["Nr Zlecenia","Klient","Miejsce odbioru/dostawy","Forma transportu","Palety","CBM","Kartony","Przewoźnik","Data zlecenia","Data odbioru (ETD)","Przewid. data dostawy (ETA)","Status","Koszt (oryg.)","Waluta","Koszt PLN","Uwagi / Nr FV"];
-const CARRIERS = ["","KLN Freight","Alfa Forwarding","JAS-FBG S.A.","LEADERLOGISTIC","keratransport","Raben","EUROGATE","NSI LOGISTIC"];
+const DEFAULT_CARRIERS = ["","KLN Freight","Alfa Forwarding","JAS-FBG S.A.","LEADERLOGISTIC","keratransport","Raben","EUROGATE","NSI LOGISTIC"];
 const TRANSPORT = ["","Bus","Kolej","Morze","Lotniczy"];
 const CURRENCIES = ["PLN","EUR","USD","GBP"];
 const STATUSES = ["W realizacji","Dostarczone","Opóźnione","Anulowane","Oczekuje"];
@@ -283,11 +304,104 @@ let parsedData = null;
 let editOrder = null;
 let editRowIndex = -1;
 
-function getKey() { return localStorage.getItem("transport_api_key") || "AIzaSyCnmedR2AQZ53gM44dVcejeGFSCLlSiWUw"; }
+/* ---------- BEZPIECZNY DOSTĘP DO PAMIĘCI ----------
+   Niektóre przeglądarki blokują localStorage przy otwarciu pliku
+   lokalnie (file://) lub w trybie prywatnym. Zamiast wysypywać
+   całą stronę, przechodzimy wtedy na pamięć tymczasową. */
+const memStore = {};
+function lsGet(key) {
+  try { const v = localStorage.getItem(key); return v !== null ? v : (memStore[key] ?? null); }
+  catch(e) { return memStore[key] ?? null; }
+}
+function lsSet(key, val) {
+  memStore[key] = val;
+  try { localStorage.setItem(key, val); } catch(e) { /* pamięć niedostępna – zostaje w memStore */ }
+}
+
+/* ---------- PRZEWOŹNICY ---------- */
+const CARRIERS_KEY = "transport_custom_carriers";
+function getCustomCarriers() {
+  try {
+    const v = JSON.parse(lsGet(CARRIERS_KEY) || "[]");
+    return Array.isArray(v) ? v : [];
+  } catch(e) { return []; }
+}
+function getCarriers() {
+  const all = [...DEFAULT_CARRIERS];
+  getCustomCarriers().forEach(c => {
+    if (!all.some(x => x.toLowerCase() === String(c).toLowerCase())) all.push(c);
+  });
+  return all;
+}
+function addCarrier(name) {
+  name = (name || "").trim();
+  if (!name) return "";
+  const custom = getCustomCarriers();
+  const exists = [...DEFAULT_CARRIERS, ...custom].some(c => c.toLowerCase() === name.toLowerCase());
+  if (!exists) {
+    custom.push(name);
+    lsSet(CARRIERS_KEY, JSON.stringify(custom));
+  }
+  return name;
+}
+function removeCarrier(name) {
+  const custom = getCustomCarriers().filter(c => c.toLowerCase() !== String(name).toLowerCase());
+  lsSet(CARRIERS_KEY, JSON.stringify(custom));
+}
+function renderCarrierManageList() {
+  const box = document.getElementById("carrier-manage-list");
+  if (!box) return;
+  const custom = getCustomCarriers();
+  if (!custom.length) {
+    box.innerHTML = `<div style="font-size:12px;color:var(--text3);">Brak własnych przewoźników.</div>`;
+    return;
+  }
+  box.innerHTML = custom.map(c =>
+    `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;">
+      <span style="font-size:13px;font-weight:600;">${c}</span>
+      <button class="btn btn-sm btn-danger" onclick="deleteCarrierFromSetup('${String(c).replace(/'/g,"\\'")}')">Usuń</button>
+    </div>`
+  ).join("");
+}
+function addCarrierFromSetup() {
+  const inp = document.getElementById("new-carrier-input");
+  const name = addCarrier(inp.value);
+  if (name) { showToast("Dodano przewoźnika: " + name, "success"); inp.value = ""; renderCarrierManageList(); }
+}
+function deleteCarrierFromSetup(name) {
+  removeCarrier(name);
+  showToast("Usunięto przewoźnika", "success");
+  renderCarrierManageList();
+}
+/* Zmiana wyboru w dropdownie przewoźnika w formularzu */
+function onCarrierSelect(sel) {
+  if (sel.value === "__ADD_CARRIER__") {
+    const name = prompt("Nazwa nowego przewoźnika:");
+    const added = addCarrier(name);
+    if (added) {
+      updateField("przewoznik", added);
+      rebuildCarrierSelect(sel, added);
+    } else {
+      const cur = (parsedData && parsedData.przewoznik) || (editOrder && editOrder.przewoznik) || "";
+      sel.value = cur;
+    }
+  } else {
+    updateField("przewoznik", sel.value);
+  }
+}
+function rebuildCarrierSelect(sel, selected) {
+  const carriers = getCarriers();
+  sel.innerHTML =
+    carriers.map(o => `<option value="${o}" ${o===selected?"selected":""}>${o||"—"}</option>`).join("") +
+    `<option value="__ADD_CARRIER__">➕ Dodaj nowego przewoźnika…</option>`;
+  sel.value = selected;
+}
+
+function getKey() { return lsGet("transport_api_key") || "AIzaSyCnmedR2AQZ53gM44dVcejeGFSCLlSiWUw"; }
 function saveKey() {
   const k = document.getElementById("api-key-input").value.trim();
   if (!k) return;
-  localStorage.setItem("transport_api_key", k);
+  lsSet("transport_api_key", k);
   showToast("Klucz zapisany!","success");
   showTab("list");
 }
@@ -312,6 +426,7 @@ function showTab(tab) {
   if (tab==="list") loadOrders();
   if (tab==="setup") {
     document.getElementById("api-key-input").value = getKey();
+    renderCarrierManageList();
   }
 }
 
@@ -329,6 +444,17 @@ function parseLine(line) {
 function parseNum(s) {
   if (!s) return 0;
   return parseFloat(String(s).replace(/\s/g,"").replace("PLN","").replace("EUR","").replace("USD","").replace(",",".")) || 0;
+}
+/* Parsowanie daty do wartości sortowalnej (obsługuje YYYY-MM-DD, DD.MM.YYYY, DD/MM/YYYY) */
+function parseDateVal(s) {
+  if (!s) return 0;
+  s = String(s).trim();
+  let m = s.match(/^(\d{4})[-.\/](\d{1,2})[-.\/](\d{1,2})/);
+  if (m) return new Date(+m[1], +m[2]-1, +m[3]).getTime();
+  m = s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/);
+  if (m) { let y = +m[3]; if (y < 100) y += 2000; return new Date(y, +m[2]-1, +m[1]).getTime(); }
+  const t = Date.parse(s);
+  return isNaN(t) ? 0 : t;
 }
 function parseCSV(text) {
   const lines = text.trim().split(/\r?\n/);
@@ -447,6 +573,12 @@ function renderTable() {
     const m = !search || [o.nr,o.klient,o.przewoznik,o.miejsce].some(v=>v&&v.toLowerCase().includes(search));
     return m && (!fs||o.status===fs);
   });
+  // Najnowsze na górze: sortuj po dacie zlecenia malejąco, fallback po kolejności w arkuszu
+  filtered.sort((a,b) => {
+    const da = parseDateVal(a.dataZlecenia), db = parseDateVal(b.dataZlecenia);
+    if (db !== da) return db - da;
+    return b.id - a.id;
+  });
   const body = document.getElementById("table-body");
   if (!filtered.length) {
     body.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:40px;color:var(--text3);">Brak zleceń</td></tr>`;
@@ -473,6 +605,15 @@ function renderTable() {
 
 function makeField(label, key, val, type, opts, span) {
   const wrap = span ? 'style="grid-column:1/-1;"' : '';
+  // Przewoźnik: dropdown z listy (domyślni + własni) + opcja dodania nowego
+  if (key === "przewoznik") {
+    const carriers = getCarriers();
+    return `<div class="field-group" ${wrap}><label class="field-label">${label}</label>
+      <select class="field-input" id="f_${key}" onchange="onCarrierSelect(this)">
+        ${carriers.map(o=>`<option value="${o}" ${val==o?"selected":""}>${o||"—"}</option>`).join("")}
+        <option value="__ADD_CARRIER__">➕ Dodaj nowego przewoźnika…</option>
+      </select></div>`;
+  }
   if (opts) {
     return `<div class="field-group" ${wrap}><label class="field-label">${label}</label>
       <select class="field-input" id="f_${key}" oninput="updateField('${key}',this.value)">
@@ -493,7 +634,7 @@ function renderFormFields(data, gridId) {
   const fields = [
     ["Nr zlecenia","nr","text",null,false],["Klient","klient","text",null,false],
     ["Miejsce odbioru/dostawy","miejsce","text",null,true],
-    ["Transport","transport","text",TRANSPORT,false],["Przewoźnik","przewoznik","text",CARRIERS,false],
+    ["Transport","transport","text",TRANSPORT,false],["Przewoźnik","przewoznik","text",getCarriers(),false],
     ["Palety","palety","number",null,false],["CBM","cbm","number",null,false],["Kartony","kartony","number",null,false],
     ["Status","status","text",STATUSES,false],
     ["Data zlecenia","dataZlecenia","date",null,false],["Data odbioru (ETD)","dataOdbioru","date",null,false],["Data dostawy (ETA)","dataDostawa","date",null,false],
@@ -519,10 +660,10 @@ function smartParse(input) {
   else if (/lotn|air|cargo air/.test(txt)) result.transport = "Lotniczy";
   else if (/bus|truck|tir|drogowy/.test(txt)) result.transport = "Bus";
 
-  // Carrier
-  const carriers = ["KLN Freight","Alfa Forwarding","JAS-FBG","LEADERLOGISTIC","keratransport","Raben","EUROGATE","NSI LOGISTIC"];
+  // Carrier (domyślni + własni z localStorage)
+  const carriers = ["KLN Freight","Alfa Forwarding","JAS-FBG","LEADERLOGISTIC","keratransport","Raben","EUROGATE","NSI LOGISTIC", ...getCustomCarriers()];
   for (const c of carriers) {
-    if (input.toUpperCase().includes(c.toUpperCase())) { result.przewoznik = c; break; }
+    if (c && input.toUpperCase().includes(c.toUpperCase())) { result.przewoznik = c; break; }
   }
 
   // CBM
@@ -688,7 +829,23 @@ async function handleDelete() {
 }
 
 // Init
-localStorage.setItem("transport_api_key", "AIzaSyCnmedR2AQZ53gM44dVcejeGFSCLlSiWUw");
+lsSet("transport_api_key", "AIzaSyCnmedR2AQZ53gM44dVcejeGFSCLlSiWUw");
+
+// Ostrzeżenie gdy plik otwarty lokalnie (file://) — wtedy Google Sheets nie zadziała
+if (location.protocol === "file:") {
+  const b = document.getElementById("local-warning");
+  if (b) b.style.display = "block";
+}
+
+// Łapiemy nieoczekiwane błędy, żeby nigdy nie skończyć na białej stronie
+window.addEventListener("error", function(ev) {
+  const b = document.getElementById("js-error-banner");
+  if (b) {
+    b.style.display = "block";
+    b.textContent = "Błąd skryptu: " + (ev.message || "nieznany") + " — pokaż to Claude.";
+  }
+});
+
 loadOrders();
 </script>
 </body>
