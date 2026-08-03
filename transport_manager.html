@@ -279,6 +279,7 @@
 <script>
 const SHEET_ID = "1QOKiayXPAtX3DtKYC9y-3lRchNvhKdS-cxymnXIh-Mg";
 const SHEET_NAME = "Zlecenia";
+const SHEET_GID = "2019331499";
 const HEADERS = ["Nr Zlecenia","Klient","Miejsce odbioru/dostawy","Forma transportu","Palety","CBM","Kartony","Przewoźnik","Data zlecenia","Data odbioru (ETD)","Przewid. data dostawy (ETA)","Status","Koszt (oryg.)","Waluta","Koszt PLN","Uwagi / Nr FV"];
 const DEFAULT_CARRIERS = ["","KLN Freight","Alfa Forwarding","JAS-FBG S.A.","LEADERLOGISTIC","keratransport","Raben","EUROGATE","NSI LOGISTIC"];
 const TRANSPORT = ["","Bus","Kolej","Morze","Lotniczy"];
@@ -489,31 +490,68 @@ function parseCSV(text) {
   return result;
 }
 
+/* Pokazuje błąd na stałe — w tabeli i w czerwonym pasku u góry.
+   Wcześniej błąd migał tylko 3 sekundy w dymku i znikał, a tabela
+   zostawała na "Ładuję...", co wyglądało jak zawieszenie. */
+function showLoadError(msg, detail) {
+  const body = document.getElementById("table-body");
+  if (body) body.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--red);font-weight:600;">
+    ${msg}<div style="font-weight:400;font-size:12px;color:var(--text2);margin-top:8px;max-width:640px;margin-left:auto;margin-right:auto;line-height:1.6;">${detail||""}</div></td></tr>`;
+  const b = document.getElementById("js-error-banner");
+  if (b) { b.style.display = "block"; b.innerHTML = `<strong>Nie udało się wczytać arkusza.</strong> ${msg} ${detail||""}`; }
+}
+
+/* Trzy sposoby pobrania arkusza — jeśli pierwszy zostanie zablokowany,
+   próbujemy kolejnego. Zwraca {text, url} albo rzuca błąd. */
+async function fetchSheetCsv() {
+  const t = Date.now();
+  const urls = [
+    `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}&t=${t}`,
+    `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${SHEET_GID}&t=${t}`,
+    `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${SHEET_GID}&t=${t}`,
+    `https://docs.google.com/spreadsheets/d/${SHEET_ID}/pub?output=csv&gid=${SHEET_GID}&single=true&t=${t}`,
+  ];
+  const problems = [];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) { problems.push(`HTTP ${res.status}`); continue; }
+      const text = await res.text();
+      if (text && text.includes(",") && !/^\s*<!DOCTYPE|^\s*<html/i.test(text)) return { text, url };
+      problems.push("odpowiedź nie jest arkuszem (możliwe okno logowania Google)");
+    } catch(e) {
+      problems.push(e.message || "połączenie zablokowane");
+    }
+  }
+  throw new Error(problems.join(" | "));
+}
+
 async function loadOrders() {
   setSyncing(true);
+  const banner = document.getElementById("js-error-banner");
+  if (banner) banner.style.display = "none";
   document.getElementById("table-body").innerHTML = `<tr><td colspan="11" style="text-align:center;padding:40px;color:var(--text3);"><span class="spinner"></span> Ładuję z Google Sheets...</td></tr>`;
   try {
-    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}&t=${Date.now()}`;
-    const res = await fetch(url);
-    if (!res.ok) { showToast("Błąd "+res.status+" — sprawdź czy arkusz jest publiczny","error"); setSyncing(false); return; }
-    const text = await res.text();
-    const first = text.split("\n")[0]||"";
-    // Accept if has headers or has data rows
-    if (first.includes("Nr Zlecenia")||first.includes("Klient")||first.includes("ZT_")) {
-      orders = parseCSV(text);
-      document.getElementById("init-prompt").style.display = "none";
-      renderStats(); renderTable();
-    } else if (text.trim().length < 10) {
-      // Empty sheet
+    const { text } = await fetchSheetCsv();
+    if (text.trim().length < 10) {
       document.getElementById("init-prompt").style.display = "block";
       document.getElementById("table-body").innerHTML = "";
+      setSyncing(false);
+      return;
+    }
+    orders = parseCSV(text);
+    document.getElementById("init-prompt").style.display = "none";
+    if (!orders.length) {
+      showLoadError("Arkusz się wczytał, ale nie rozpoznałem żadnego zlecenia.",
+        "Pierwsza linia arkusza: <span class='mono'>" + (text.split("\n")[0]||"").slice(0,160).replace(/</g,"&lt;") + "</span>");
     } else {
-      // Has data but different format - try parsing anyway
-      orders = parseCSV(text);
-      document.getElementById("init-prompt").style.display = "none";
       renderStats(); renderTable();
     }
-  } catch(e) { showToast("Błąd ładowania: "+e.message,"error"); }
+  } catch(e) {
+    showLoadError("Przeglądarka nie mogła pobrać danych z Google Sheets.",
+      "Szczegóły: <span class='mono'>" + String(e.message).slice(0,300).replace(/</g,"&lt;") + "</span><br>" +
+      "Najczęstsza przyczyna: arkusz nie jest udostępniony publicznie. W arkuszu: <strong>Udostępnij → Ogólny dostęp → Każda osoba mająca link → Przeglądający</strong>. Pokaż ten komunikat Claude.");
+  }
   setSyncing(false);
 }
 
